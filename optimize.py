@@ -217,6 +217,7 @@ ry = cy + n_opt * ny_c
 
 
 def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
+    v_kmh = v_opt * 3.6
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), facecolor="#0d0d0d")
     fig.suptitle(
         title + " — Optimal Racing Line",
@@ -240,34 +241,43 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     # ── Top left: racing line ─────────────────────────────────────────────
     ax = axes[0, 0]
     ax.set_facecolor("#1c1c1c")
+
+    # Tarmac fill
     fx = np.concatenate([outer_x, inner_x[::-1], [outer_x[0]]])
     fy = np.concatenate([outer_y, inner_y[::-1], [outer_y[0]]])
     ax.fill(fx, fy, color="#2e2e2e", zorder=1)
+
+    # Track boundaries
     for bx, by in [(inner_x, inner_y), (outer_x, outer_y)]:
         ax.plot(
             np.append(bx, bx[0]), np.append(by, by[0]), color="white", lw=1.0, zorder=2
         )
-    ax.plot(
-        np.append(cx, cx[0]),
-        np.append(cy, cy[0]),
-        color="#555",
-        lw=1.0,
-        ls="--",
-        zorder=3,
-        label="Centerline",
-    )
 
+    # Racing line colored by speed
     pts = np.array([rx, ry]).T.reshape(-1, 1, 2)
     segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
     lc = LineCollection(
         segs,
         cmap="plasma",
-        norm=plt.Normalize(v_opt.min(), v_opt.max()),
+        norm=plt.Normalize(v_kmh.min(), v_kmh.max()),
         lw=1.0,
-        zorder=4,
+        zorder=3,
     )
-    lc.set_array(v_opt[:-1])
+    lc.set_array(v_kmh[:-1])
     ax.add_collection(lc)
+
+    # Dashed centerline on top of speed line
+    ax.plot(
+        np.append(cx, cx[0]),
+        np.append(cy, cy[0]),
+        color="#aaaaaa",
+        lw=1.0,
+        ls="--",
+        zorder=5,
+        label="Centerline",
+    )
+
+    # Colorbar
     cb = fig.colorbar(lc, ax=ax, fraction=0.03, pad=0.04)
     cb.set_label("Speed [m/s]", color="white", fontsize=9)
     cb.ax.yaxis.set_tick_params(color="white")
@@ -283,8 +293,8 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     # ── Top right: speed profile ──────────────────────────────────────────
     ax = axes[0, 1]
     ax.set_facecolor("#1c1c1c")
-    ax.plot(s[:N], v_opt * 3.6, color="#e10600", lw=1.5)
-    ax.fill_between(s[:N], 0, v_opt * 3.6, color="#e10600", alpha=0.2)
+    ax.plot(s[:N], v_kmh * 3.6, color="#e10600", lw=1.5)
+    ax.fill_between(s[:N], 0, v_kmh * 3.6, color="#e10600", alpha=0.2)
     ax.set_xlabel("Arc length s [m]", color="white", fontsize=10)
     ax.set_ylabel("Speed [km/h]", color="white", fontsize=10)
     ax.set_title("Speed Profile", color="white", fontsize=11)
@@ -343,7 +353,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
         sp.set_edgecolor("#444")
 
     plt.tight_layout(rect=[0, 0, 1, 0.97])
-    out = os.path.join(OUTPUT_DIR, "optimal_racing_line.svg")
+    out = os.path.join(OUTPUT_DIR, "optimal_racing_line.png")
     plt.savefig(out, dpi=150, bbox_inches="tight", facecolor="#0d0d0d")
     print(f"Saved → {out}")
     plt.close()

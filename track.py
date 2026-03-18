@@ -290,9 +290,10 @@ def save_track_data(s_uni, cx, cy, kappa_ref, n_min, n_max, L):
 
 if __name__ == "__main__":
     N = 500
+    track = "MIAMI"
 
     print("── Step 1: Build track ───────────────────")
-    x_raw, y_raw = load_real_track(year=2025, gp="MONACO", session_type="R")
+    x_raw, y_raw = load_real_track(year=2025, gp=track, session_type="R")
 
     x_raw -= x_raw.mean()
     y_raw -= y_raw.mean()
@@ -319,7 +320,7 @@ if __name__ == "__main__":
     ix, iy, ox, oy, n_min, n_max = track_boundaries(cx, cy, half_width=4.5)
 
     print("── Step 5: Plot ────────────────────────────────────────────")
-    plot_track(cx, cy, ix, iy, ox, oy, kappa, s_uni, L, "Bahrain GP")
+    plot_track(cx, cy, ix, iy, ox, oy, kappa, s_uni, L, track)
 
     print("── Step 6: Save ────────────────────────────────────────────")
     save_track_data(s_uni, cx, cy, kappa, n_min, n_max, L)
