@@ -6,7 +6,6 @@ import os
 
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-
 data = np.load(os.path.join(OUTPUT_DIR, "track_data.npz"))
 s = data["s"]
 cx = data["cx"]
@@ -17,6 +16,8 @@ n_max = data["n_max"]
 L = float(data["L"].flat[0])
 N = len(s)
 ds = L / N
+
+print(f"Track loaded: N={N}, ds={ds:.2f} m, L={L:.1f} m")
 
 m = 798.0
 g = 9.81
@@ -31,6 +32,7 @@ alpha_max = 0.15
 
 E_scale = 0.5 * m * v_max**2
 F_scale = mu * m * g
+
 E_max_n = 1.0
 E_min_n = (0.5 * m * v_min**2) / E_scale
 F_accel_n = F_accel_max / F_scale
@@ -38,33 +40,35 @@ F_brake_n = F_brake_max / F_scale
 c_drag = 2 * Cd / m
 c_Fx = F_scale / E_scale
 c_Fy = E_scale / F_scale
-sqrt_2m_n = np.sqrt(2 * m / E_scale)
+
+print(f"E_scale  = {E_scale:.1f} J")
+print(f"F_scale  = {F_scale:.1f} N")
+print(f"E_min_n  = {E_min_n:.4f},  E_max_n = {E_max_n:.4f}")
+print(f"F_accel_n= {F_accel_n:.4f}, F_brake_n= {F_brake_n:.4f}")
 
 n = cp.Variable(N + 1)
 alpha = cp.Variable(N + 1)
-E = cp.Variable(N + 1)
-p = cp.Variable(N + 1)
-Fx = cp.Variable(N)
-Fy = cp.Variable(N + 1)
-kappa_path_v = cp.Variable(N)
+E = cp.Variable(N + 1)  # scaled energy
+p = cp.Variable(N + 1)  # pace [s/m], physical units
+Fx = cp.Variable(N)  # scaled longitudinal force
+Fy = cp.Variable(N + 1)  # scaled lateral force
+kappa_path_v = cp.Variable(N)  # path curvature [1/m]
 
 objective = cp.Minimize(cp.sum(p[:N]) * ds)
 
 kappa_path_prev = kappa_ref.copy()
-E_prev = np.full(N + 1, 0.5)
+E_prev = np.full(N + 1, 0.3)
 
 n_prev = np.zeros(N)
-E_prev_check = np.full(N, 0.5)
+E_prev_check = np.full(N, 0.3)
 
 tol_n = 1e-3
-tol_E = 1e-3
-
-max_iter = 15
+tol_E = 1e-4
+max_iter = 20
 
 n_opt = None
 E_opt = None
 Fx_opt = None
-Fy_opt = None
 v_opt = None
 lap_time = None
 
@@ -103,9 +107,10 @@ for iteration in range(max_iter):
         constraints.append(cp.norm(cp.vstack([Fx[i], Fy[i]]), 2) <= 1.0)
 
     for i in range(N + 1):
-        constraints.append(
-            cp.norm(cp.vstack([sqrt_2m_n, p[i] - E[i]]), 2) <= p[i] + E[i]
-        )
+        v_p = np.sqrt(2 * E_prev[i] * E_scale / m)
+        v_p = max(v_p, v_min)
+        coeff = 2.0 * E_scale / (m * v_p**3)
+        constraints.append(p[i] >= 2.0 / v_p - E[i] * coeff)
 
     constraints += [
         E >= E_min_n,
@@ -114,7 +119,8 @@ for iteration in range(max_iter):
         Fx <= F_accel_n,
         alpha >= -alpha_max,
         alpha <= alpha_max,
-        p >= 0,
+        p >= 1.0 / v_max,
+        p <= 1.0 / v_min,
     ]
 
     constraints += [
@@ -136,20 +142,23 @@ for iteration in range(max_iter):
     E_opt = E.value[:N] * E_scale
     Fx_opt = Fx.value * F_scale
     Fy_opt = Fy.value[:N] * F_scale
+    p_opt = p.value[:N]
     v_opt = np.sqrt(2 * E_opt / m)
 
-    print(f"  Lap time : {lap_time:.3f} s  ({lap_time/60:.2f} min)")
-    print(f"  Max speed: {v_opt.max()*3.6:.1f} km/h")
-    print(f"  Min speed: {v_opt.min()*3.6:.1f} km/h")
-    print(f"  Max |n|  : {np.abs(n_opt).max():.3f} m")
+    lap_check = np.sum(1.0 / v_opt) * ds
+    print(f"  Lap time (solver): {lap_time:.1f} s  ({lap_time/60:.2f} min)")
+    print(f"  Lap time (1/v)   : {lap_check:.1f} s  ({lap_check/60:.2f} min)")
+    print(f"  Max speed        : {v_opt.max()*3.6:.1f} km/h")
+    print(f"  Min speed        : {v_opt.min()*3.6:.1f} km/h")
+    print(f"  Max |n|          : {np.abs(n_opt).max():.3f} m")
 
     delta_n = np.max(np.abs(n_opt - n_prev))
     delta_E = np.max(np.abs(E.value[:N] - E_prev_check))
-    print(f"  Δn       : {delta_n:.6f} m")
-    print(f"  ΔE       : {delta_E:.6f}")
+    print(f"  Δn               : {delta_n:.6f} m")
+    print(f"  ΔE               : {delta_E:.6f} (scaled)")
 
     kappa_path_prev = kappa_path_v.value
-    E_prev = E.value
+    E_prev = E.value.copy()
 
     if delta_n < tol_n and delta_E < tol_E and iteration > 0:
         print(f"  Converged at iteration {iteration+1}")
@@ -158,7 +167,11 @@ for iteration in range(max_iter):
     n_prev = n_opt.copy()
     E_prev_check = E.value[:N].copy()
 
-print(f"\nFinal lap time: {lap_time:.3f} s  ({lap_time/60:.2f} min)")
+print(f"\n{'='*50}")
+print(f"Final lap time: {lap_time:.1f} s  ({lap_time/60:.2f} min)")
+print(f"Max speed     : {v_opt.max()*3.6:.1f} km/h")
+print(f"Min speed     : {v_opt.min()*3.6:.1f} km/h")
+print(f"{'='*50}")
 
 dx_c = np.roll(cx, -1) - np.roll(cx, 1)
 dy_c = np.roll(cy, -1) - np.roll(cy, 1)
@@ -169,8 +182,7 @@ ny_c = dx_c / mag
 rx = cx + n_opt * nx_c
 ry = cy + n_opt * ny_c
 
-
-def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
+def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, lap_time, title):
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), facecolor="#0d0d0d")
     fig.suptitle(
         title + " — Optimal Racing Line",
@@ -202,7 +214,6 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
             np.append(bx, bx[0]), np.append(by, by[0]), color="white", lw=1.0, zorder=2
         )
 
-    # Racing line colored by speed
     v_kmh = v_opt * 3.6
     pts = np.array([rx, ry]).T.reshape(-1, 1, 2)
     segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
@@ -216,7 +227,6 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     lc.set_array(v_kmh[:-1])
     ax.add_collection(lc)
 
-    # Dashed centerline on top
     ax.plot(
         np.append(cx, cx[0]),
         np.append(cy, cy[0]),
@@ -232,6 +242,16 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     cb.ax.yaxis.set_tick_params(color="white")
     plt.setp(cb.ax.yaxis.get_ticklabels(), color="white")
 
+    ax.text(
+        0.02,
+        0.02,
+        f"Lap time: {lap_time:.1f} s  ({lap_time/60:.2f} min)",
+        transform=ax.transAxes,
+        color="white",
+        fontsize=9,
+        bbox=dict(facecolor="#2a2a2a", alpha=0.8, edgecolor="none"),
+    )
+
     ax.set_aspect("equal")
     ax.set_title("Racing Line (colored by speed)", color="white", fontsize=11)
     ax.legend(facecolor="#2a2a2a", labelcolor="white", fontsize=8)
@@ -239,6 +259,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
+    # Top right: speed profile
     ax = axes[0, 1]
     ax.set_facecolor("#1c1c1c")
     ax.plot(s[:N], v_kmh, color="#e10600", lw=1.5)
@@ -251,6 +272,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
+    # Bottom left: lateral offset
     ax = axes[1, 0]
     ax.set_facecolor("#1c1c1c")
     ax.axhline(0, color="#555", lw=0.8, ls="--", label="Centerline")
@@ -267,6 +289,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
+    # Bottom right: throttle/brake
     ax = axes[1, 1]
     ax.set_facecolor("#1c1c1c")
     ax.axhline(0, color="#555", lw=0.8, ls="--")
@@ -304,6 +327,5 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     print(f"Saved → {out}")
     plt.close()
 
-
 track = "Suzuka"
-plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, "Suzuka")
+plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, lap_time, track)
