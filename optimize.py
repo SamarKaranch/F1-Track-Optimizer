@@ -1,10 +1,3 @@
-"""
-F1 Minimum Lap Time Optimizer
-==============================
-Loads track_data.npz from the geometry pipeline and solves the
-minimum lap time SOCP using CVXPY with SCP iterations.
-"""
-
 import numpy as np
 import cvxpy as cp
 import matplotlib.pyplot as plt
@@ -13,9 +6,6 @@ import os
 
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# =========================================================================
-# STEP 1 — Load track data
-# =========================================================================
 
 data = np.load(os.path.join(OUTPUT_DIR, "track_data.npz"))
 s = data["s"]
@@ -28,12 +18,6 @@ L = float(data["L"].flat[0])
 N = len(s)
 ds = L / N
 
-print(f"Track loaded: N={N}, ds={ds:.2f} m, L={L:.1f} m")
-
-# =========================================================================
-# STEP 2 — Vehicle parameters
-# =========================================================================
-
 m = 798.0
 g = 9.81
 mu = 1.8
@@ -44,10 +28,6 @@ v_min = 5.0
 F_accel_max = 10000.0
 F_brake_max = 18000.0
 alpha_max = 0.15
-
-# =========================================================================
-# STEP 3 — Scaling factors
-# =========================================================================
 
 E_scale = 0.5 * m * v_max**2
 F_scale = mu * m * g
@@ -60,37 +40,23 @@ c_Fx = F_scale / E_scale
 c_Fy = E_scale / F_scale
 sqrt_2m_n = np.sqrt(2 * m / E_scale)
 
-print(f"E_scale={E_scale:.1f} J,  F_scale={F_scale:.1f} N")
-print(f"E_min_n={E_min_n:.4f},  E_max_n={E_max_n:.4f}")
-print(f"F_accel_n={F_accel_n:.4f},  F_brake_n={F_brake_n:.4f}")
-
-# =========================================================================
-# STEP 4 — Decision variables (defined once, reused each iteration)
-# =========================================================================
-
 n = cp.Variable(N + 1)
 alpha = cp.Variable(N + 1)
 E = cp.Variable(N + 1)
 p = cp.Variable(N + 1)
 Fx = cp.Variable(N)
 Fy = cp.Variable(N + 1)
-kappa_path_v = cp.Variable(N)  # path curvature — now a variable
+kappa_path_v = cp.Variable(N)
 
 objective = cp.Minimize(cp.sum(p[:N]) * ds)
 
-# =========================================================================
-# STEP 5 — SCP loop
-# =========================================================================
-
-# Linearization points
 kappa_path_prev = kappa_ref.copy()
-E_prev = np.full(N + 1, 0.5)  # scaled, mid-range initial guess
+E_prev = np.full(N + 1, 0.5)
 
 n_prev = np.zeros(N)
 max_iter = 15
 tol = 1e-3
 
-# Store results
 n_opt = None
 E_opt = None
 Fx_opt = None
@@ -102,7 +68,6 @@ for iteration in range(max_iter):
 
     constraints = []
 
-    # --- Track boundary ---
     constraints += [
         n[:N] >= n_min + w_veh / 2,
         n[:N] <= n_max - w_veh / 2,
@@ -110,20 +75,14 @@ for iteration in range(max_iter):
         n[N] <= n_max[0] - w_veh / 2,
     ]
 
-    # --- Longitudinal dynamics ---
     for i in range(N):
         constraints.append((E[i + 1] - E[i]) / ds == Fx[i] * c_Fx - c_drag * E[i])
 
-    # --- Kinematics + linearized bilinear Fy ---
     for i in range(N):
-        # lateral position
         constraints.append((n[i + 1] - n[i]) / ds == alpha[i])
-        # path curvature = ref + heading rate
         constraints.append(
             kappa_path_v[i] == kappa_ref[i] + (alpha[i + 1] - alpha[i]) / ds
         )
-        # Fy = 2 * kappa_path * E  (bilinear — linearize via first-order Taylor)
-        # kappa * E ≈ kappa_prev*E + kappa*E_prev - kappa_prev*E_prev
         constraints.append(
             Fy[i]
             == 2
@@ -135,17 +94,14 @@ for iteration in range(max_iter):
             )
         )
 
-    # --- Friction circle (SOCP) ---
     for i in range(N):
         constraints.append(cp.norm(cp.vstack([Fx[i], Fy[i]]), 2) <= 1.0)
 
-    # --- Velocity-pace coupling (rotated SOCP) ---
     for i in range(N + 1):
         constraints.append(
             cp.norm(cp.vstack([sqrt_2m_n, p[i] - E[i]]), 2) <= p[i] + E[i]
         )
 
-    # --- Box constraints ---
     constraints += [
         E >= E_min_n,
         E <= E_max_n,
@@ -156,7 +112,6 @@ for iteration in range(max_iter):
         p >= 0,
     ]
 
-    # --- Periodicity ---
     constraints += [
         n[0] == n[N],
         alpha[0] == alpha[N],
@@ -170,7 +125,6 @@ for iteration in range(max_iter):
         print(f"  Solver failed: {prob.status}")
         break
 
-    # Extract results
     lap_time = prob.value
     n_opt = n.value[:N]
     alpha_opt = alpha.value[:N]
@@ -184,11 +138,9 @@ for iteration in range(max_iter):
     print(f"  Min speed: {v_opt.min()*3.6:.1f} km/h")
     print(f"  Max |n|  : {np.abs(n_opt).max():.3f} m")
 
-    # Update linearization points
     kappa_path_prev = kappa_path_v.value
     E_prev = E.value
 
-    # Convergence check
     delta = np.max(np.abs(n_opt - n_prev))
     print(f"  Δn       : {delta:.6f} m")
     if delta < tol and iteration > 0:
@@ -198,10 +150,6 @@ for iteration in range(max_iter):
 
 print(f"\nFinal lap time: {lap_time:.3f} s  ({lap_time/60:.2f} min)")
 
-# =========================================================================
-# STEP 6 — Reconstruct racing line in world coordinates
-# =========================================================================
-
 dx_c = np.roll(cx, -1) - np.roll(cx, 1)
 dy_c = np.roll(cy, -1) - np.roll(cy, 1)
 mag = np.sqrt(dx_c**2 + dy_c**2) + 1e-12
@@ -210,10 +158,6 @@ ny_c = dx_c / mag
 
 rx = cx + n_opt * nx_c
 ry = cy + n_opt * ny_c
-
-# =========================================================================
-# STEP 7 — Plot results
-# =========================================================================
 
 
 def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
@@ -227,7 +171,6 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
         y=0.99,
     )
 
-    # Recompute boundaries
     dx_c = np.roll(cx, -1) - np.roll(cx, 1)
     dy_c = np.roll(cy, -1) - np.roll(cy, 1)
     mag = np.sqrt(dx_c**2 + dy_c**2) + 1e-12
@@ -238,7 +181,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     outer_x = cx + 4.5 * nx_c
     outer_y = cy + 4.5 * ny_c
 
-    # ── Top left: racing line ─────────────────────────────────────────────
+    # Top left: racing line
     ax = axes[0, 0]
     ax.set_facecolor("#1c1c1c")
 
@@ -279,7 +222,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
 
     # Colorbar
     cb = fig.colorbar(lc, ax=ax, fraction=0.03, pad=0.04)
-    cb.set_label("Speed [m/s]", color="white", fontsize=9)
+    cb.set_label("Speed [km/h]", color="white", fontsize=9)
     cb.ax.yaxis.set_tick_params(color="white")
     plt.setp(cb.ax.yaxis.get_ticklabels(), color="white")
 
@@ -290,7 +233,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
-    # ── Top right: speed profile ──────────────────────────────────────────
+    # Top right: speed profile
     ax = axes[0, 1]
     ax.set_facecolor("#1c1c1c")
     ax.plot(s[:N], v_kmh * 3.6, color="#e10600", lw=1.5)
@@ -303,7 +246,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
-    # ── Bottom left: lateral offset ───────────────────────────────────────
+    # Bottom left: lateral offset
     ax = axes[1, 0]
     ax.set_facecolor("#1c1c1c")
     ax.axhline(0, color="#555", lw=0.8, ls="--", label="Centerline")
@@ -320,7 +263,7 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
-    # ── Bottom right: throttle/brake ──────────────────────────────────────
+    # Bottom right: throttle/brake
     ax = axes[1, 1]
     ax.set_facecolor("#1c1c1c")
     ax.axhline(0, color="#555", lw=0.8, ls="--")
