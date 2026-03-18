@@ -54,17 +54,22 @@ kappa_path_prev = kappa_ref.copy()
 E_prev = np.full(N + 1, 0.5)
 
 n_prev = np.zeros(N)
+E_prev_check = np.full(N, 0.5)
+
+tol_n = 1e-3
+tol_E = 1e-3
+
 max_iter = 15
-tol = 1e-3
 
 n_opt = None
 E_opt = None
 Fx_opt = None
+Fy_opt = None
 v_opt = None
 lap_time = None
 
 for iteration in range(max_iter):
-    print(f"\n── SCP Iteration {iteration+1} ──────────────────────────")
+    print(f"\n SCP Iteration {iteration+1}")
 
     constraints = []
 
@@ -138,15 +143,20 @@ for iteration in range(max_iter):
     print(f"  Min speed: {v_opt.min()*3.6:.1f} km/h")
     print(f"  Max |n|  : {np.abs(n_opt).max():.3f} m")
 
+    delta_n = np.max(np.abs(n_opt - n_prev))
+    delta_E = np.max(np.abs(E.value[:N] - E_prev_check))
+    print(f"  Δn       : {delta_n:.6f} m")
+    print(f"  ΔE       : {delta_E:.6f}")
+
     kappa_path_prev = kappa_path_v.value
     E_prev = E.value
 
-    delta = np.max(np.abs(n_opt - n_prev))
-    print(f"  Δn       : {delta:.6f} m")
-    if delta < tol and iteration > 0:
+    if delta_n < tol_n and delta_E < tol_E and iteration > 0:
         print(f"  Converged at iteration {iteration+1}")
         break
+
     n_prev = n_opt.copy()
+    E_prev_check = E.value[:N].copy()
 
 print(f"\nFinal lap time: {lap_time:.3f} s  ({lap_time/60:.2f} min)")
 
@@ -161,7 +171,6 @@ ry = cy + n_opt * ny_c
 
 
 def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
-    v_kmh = v_opt * 3.6
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), facecolor="#0d0d0d")
     fig.suptitle(
         title + " — Optimal Racing Line",
@@ -185,31 +194,29 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     ax = axes[0, 0]
     ax.set_facecolor("#1c1c1c")
 
-    # Tarmac fill
     fx = np.concatenate([outer_x, inner_x[::-1], [outer_x[0]]])
     fy = np.concatenate([outer_y, inner_y[::-1], [outer_y[0]]])
     ax.fill(fx, fy, color="#2e2e2e", zorder=1)
-
-    # Track boundaries
     for bx, by in [(inner_x, inner_y), (outer_x, outer_y)]:
         ax.plot(
             np.append(bx, bx[0]), np.append(by, by[0]), color="white", lw=1.0, zorder=2
         )
 
     # Racing line colored by speed
+    v_kmh = v_opt * 3.6
     pts = np.array([rx, ry]).T.reshape(-1, 1, 2)
     segs = np.concatenate([pts[:-1], pts[1:]], axis=1)
     lc = LineCollection(
         segs,
         cmap="plasma",
         norm=plt.Normalize(v_kmh.min(), v_kmh.max()),
-        lw=1.0,
+        lw=2.5,
         zorder=3,
     )
     lc.set_array(v_kmh[:-1])
     ax.add_collection(lc)
 
-    # Dashed centerline on top of speed line
+    # Dashed centerline on top
     ax.plot(
         np.append(cx, cx[0]),
         np.append(cy, cy[0]),
@@ -220,7 +227,6 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
         label="Centerline",
     )
 
-    # Colorbar
     cb = fig.colorbar(lc, ax=ax, fraction=0.03, pad=0.04)
     cb.set_label("Speed [km/h]", color="white", fontsize=9)
     cb.ax.yaxis.set_tick_params(color="white")
@@ -233,11 +239,10 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
-    # Top right: speed profile
     ax = axes[0, 1]
     ax.set_facecolor("#1c1c1c")
-    ax.plot(s[:N], v_kmh * 3.6, color="#e10600", lw=1.5)
-    ax.fill_between(s[:N], 0, v_kmh * 3.6, color="#e10600", alpha=0.2)
+    ax.plot(s[:N], v_kmh, color="#e10600", lw=1.5)
+    ax.fill_between(s[:N], 0, v_kmh, color="#e10600", alpha=0.2)
     ax.set_xlabel("Arc length s [m]", color="white", fontsize=10)
     ax.set_ylabel("Speed [km/h]", color="white", fontsize=10)
     ax.set_title("Speed Profile", color="white", fontsize=11)
@@ -246,7 +251,6 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
-    # Bottom left: lateral offset
     ax = axes[1, 0]
     ax.set_facecolor("#1c1c1c")
     ax.axhline(0, color="#555", lw=0.8, ls="--", label="Centerline")
@@ -263,7 +267,6 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     for sp in ax.spines.values():
         sp.set_edgecolor("#444")
 
-    # Bottom right: throttle/brake
     ax = axes[1, 1]
     ax.set_facecolor("#1c1c1c")
     ax.axhline(0, color="#555", lw=0.8, ls="--")
@@ -302,4 +305,5 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, title):
     plt.close()
 
 
-plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, "Bahrain GP")
+track = "Suzuka"
+plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, "Suzuka")
