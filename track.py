@@ -14,7 +14,7 @@ fastf1.Cache.enable_cache("/tmp/ff1")
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def load_real_track(year=2023, gp="Bahrain", session_type="R"):
+def load_real_track(year, gp, session_type):
     session = fastf1.get_session(year, gp, session_type)
     session.load(telemetry=True, laps=True, weather=False, messages=False)
     fastest = session.laps.pick_fastest()
