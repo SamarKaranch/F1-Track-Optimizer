@@ -25,9 +25,6 @@ def load_real_track(year, gp, session_type):
     return x[mask], y[mask]
 
 
-x_raw, y_raw = load_real_track()
-
-
 def close_and_resample(x, y, N=500):
     x = np.append(x, x[0])
     y = np.append(y, y[0])
@@ -170,7 +167,7 @@ def plot_track(cx, cy, ix, iy, ox, oy, kappa, s_uni, L, title):
 
     plt.tight_layout(rect=[0, 0, 0.93, 0.95], pad=0.5)
 
-    out = os.path.join(OUTPUT_DIR, "track_geometry.png")
+    out = os.path.join(OUTPUT_DIR, "track.png")
     plt.savefig(out, dpi=150, bbox_inches="tight", facecolor="#0d0d0d")
     print(f"  Saved → {out}")
     plt.close()
@@ -192,7 +189,7 @@ def save_track_data(s_uni, cx, cy, kappa_ref, n_min, n_max, L):
 
 if __name__ == "__main__":
     N = 500
-    track = "SUZUKA"
+    track = "MIAMI"
 
     x_raw, y_raw = load_real_track(year=2025, gp=track, session_type="R")
 

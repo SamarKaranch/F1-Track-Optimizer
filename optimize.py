@@ -182,6 +182,7 @@ ny_c = dx_c / mag
 rx = cx + n_opt * nx_c
 ry = cy + n_opt * ny_c
 
+
 def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, lap_time, title):
     fig, axes = plt.subplots(2, 2, figsize=(16, 12), facecolor="#0d0d0d")
     fig.suptitle(
@@ -327,5 +328,6 @@ def plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, lap_time, title):
     print(f"Saved → {out}")
     plt.close()
 
-track = "Suzuka"
+
+track = "LAS VEGAS"
 plot_results(cx, cy, rx, ry, v_opt, n_opt, Fx_opt, s, L, lap_time, track)
